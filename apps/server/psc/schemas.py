@@ -4,7 +4,7 @@ from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
-from .db import Base
+from psc.db import Base
 
 
 class ParameterSweepConfig(Base):

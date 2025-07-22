@@ -20,3 +20,30 @@ class UnkownParameterTypeError(ConfigurationError):
         """Initialize with unknown parameter type."""
         self.parameter_type = parameter_type
         super().__init__(f"Unknown parameter type: {parameter_type}")
+
+
+class InvalidParameterValueError(ConfigurationError):
+    """Exception raised when a parameter value is invalid."""
+
+    def __init__(self, value, allowed):
+        """Initialize with invalid parameter value."""
+        self.value = value
+        super().__init__(f"Invalid parameter value: {value}. Allowed values: {allowed}")
+
+
+class ValidationLengthError(ConfigurationError):
+    """Exception raised when a parameter length is invalid."""
+
+    def __init__(self, value, min_value, max_value):
+        """Initialize with invalid parameter length."""
+        self.value = value
+        super().__init__(f"Invalid parameters length: {value} (Allowed: {min_value}-{max_value})")
+
+
+class ValidationValueError(ConfigurationError):
+    """Exception raised when a parameter value is invalid."""
+
+    def __init__(self, value, min_value, max_value):
+        """Initialize with invalid parameter value."""
+        self.value = value
+        super().__init__(f"Invalid parameter value: {value} (Allowed: {min_value}-{max_value})")

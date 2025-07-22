@@ -2,10 +2,9 @@
 	"name": "server",
 	"private": true,
 	"scripts": {
-		"dev": "poetry run python psc/server.py",
+		"dev": "poetry run python main.py",
 		"build": "echo 'Can not build a Python package'",
-		"lint": "poetry run ruff check .",
-		"lint:fix": "poetry run ruff check --fix .",
+		"lint": "poetry run ruff check --fix .",
 		"format": "poetry run ruff format ."
 	}
 }

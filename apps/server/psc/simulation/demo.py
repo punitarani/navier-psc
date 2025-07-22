@@ -2,6 +2,9 @@ import asyncio
 import json
 from uuid import UUID
 
+from psc.db import async_session_factory
+from psc.schemas import SimulationStatus
+
 
 class SimulationManager:
     """Manages simulation tasks and WebSocket connections."""
@@ -49,37 +52,26 @@ class SimulationManager:
             self.remove_connection(config_id, ws)
 
     async def run_simulation(self, config_id: UUID, parameters: list) -> None:
-        """Run a demo simulation that sends status updates every second."""
-        total_steps = 10
+        """Run a demo simulation that sends status updates every second from 0 to 100."""
+        total_steps = 100
 
         for step in range(total_steps + 1):
-            if not self.has_listeners(config_id):
-                # No listeners, skip this update
-                await asyncio.sleep(1)
-                continue
+            # Create new database entry for each state update
+            async with async_session_factory() as session:
+                simulation = SimulationStatus(
+                    config_id=config_id,
+                    progress=step,
+                    state="RUNNING" if step < total_steps else "COMPLETED",
+                )
+                session.add(simulation)
+                await session.commit()
+                await session.refresh(simulation)
 
-            status_data = {
-                "config_id": str(config_id),
-                "status": "running" if step < total_steps else "completed",
-                "progress": step / total_steps,
-                "step": step,
-                "total_steps": total_steps,
-                "timestamp": asyncio.get_event_loop().time(),
-                "parameters": (
-                    [
-                        {
-                            "type": param.type,
-                            "datatype": param.datatype.value,
-                            "values": param.values,
-                        }
-                        for param in parameters
-                    ]
-                    if step == 0
-                    else None
-                ),  # Only send parameters on first update
-            }
+                # Get the complete simulation object for broadcasting
+                simulation_data = simulation.to_dict()
 
-            await self.broadcast_status(config_id, status_data)
+            # Broadcast the complete simulation object
+            await self.broadcast_status(config_id, simulation_data)
 
             if step < total_steps:
                 await asyncio.sleep(1)

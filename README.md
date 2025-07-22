@@ -38,9 +38,10 @@ Parameters represent geometry properties like wing span, dihedral, and airfoil p
 
 | Endpoint | Method | Purpose |
 |----------|---------|----------|
-| `/configs` | GET | Return list of all configs (preview format) |
-| `/configs` | POST | Accept parameter sweep spec, return `{id}` (UUID) |
-| `/configs/{id}` | GET | Return full spec for ID or 404 |
+| `/config` | GET | Return list of all configs (preview format) - NOT IMPLEMENTED |
+| `/config` | POST | Accept parameter sweep spec, return config with UUID |
+| `/config/{id}` | GET | Return full spec for ID or 404 |
+| `/config/{id}` | POST | Start simulation for configuration |
 | `/ws/configs/{id}` | WebSocket | Stream status updates every second |
 
 ### Data Models

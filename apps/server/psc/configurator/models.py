@@ -1,18 +1,29 @@
+from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Literal
+from typing import Generic, TypeVar
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
+
+from psc.models import ValidationRule
+
+from .errors import (
+    InvalidParameterValueError,
+    ValidationLengthError,
+    ValidationValueError,
+)
+
+T = TypeVar("T")
 
 
-class ParameterType(Enum):
-    """Parameter type enum."""
+class ParameterKey(Enum):
+    """Parameter key enum."""
 
     ANGLE_OF_ATTACK = "angle_of_attack"
     SPEED = "speed"
     TURBULENCE_MODEL = "turbulence_model"
 
 
-class ParameterDataType(Enum):
+class ParameterType(Enum):
     """Parameter data type enum."""
 
     FLOAT = "float"
@@ -20,71 +31,78 @@ class ParameterDataType(Enum):
     ENUM = "enum"
 
 
-class BaseParameter(BaseModel):
-    """Base parameter model."""
+class BaseParameter(BaseModel, Generic[T], ABC):
+    """Abstract base parameter model."""
 
+    name: str
+    description: str
+
+    key: str
     type: ParameterType
-    datatype: ParameterDataType
-    values: list[float] | list[int] | list[str]
+    values: list[T]
 
     def serialize(self) -> dict:
         """Serialize the parameter to a dictionary."""
         return {
+            "key": self.key,
             "type": self.type.value,
-            "datatype": self.datatype.value,
             "values": self.values,
         }
 
-
-class AngleOfAttackParameter(BaseParameter):
-    """Angle of attack parameter model."""
-
-    type: Literal["angle_of_attack"] = "angle_of_attack"
-    values: list[float]
-
-    @field_validator("values")
-    @classmethod
-    def validate_angle_values(cls, v):
-        """Validate angle of attack values are within reasonable range."""
-        for value in v:
-            if not -90 <= value <= 90:
-                raise ValueError(f"Angle of attack {value} must be between -90 and 90 degrees")
-        return v
-
-
-class SpeedParameter(BaseParameter):
-    """Speed parameter model."""
-
-    type: Literal["speed"] = "speed"
-    values: list[float]
-
-    @field_validator("values")
-    @classmethod
-    def validate_speed_values(cls, v):
-        """Validate speed values are positive."""
-        for value in v:
-            if value <= 0:
-                raise ValueError(f"Speed {value} must be positive")
-        return v
-
-
-class TurbulenceModelParameter(BaseParameter):
-    """Turbulence model parameter model."""
-
-    type: Literal["turbulence_model"] = "turbulence_model"
-    values: list[str]
-
-    @field_validator("values")
-    @classmethod
-    def validate_turbulence_models(cls, v):
-        """Validate turbulence model values are from allowed set."""
-        allowed_models = {
-            "k-epsilon",
-            "k-omega",
+    @property
+    def schema(self) -> dict:
+        """Get the schema for the parameter."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "key": self.key,
+            "type": self.type.value,
+            "allowed_values": self.allowed_values,
+            "validation_rules": (
+                [rule.model_dump() for rule in self.validation_rules]
+                if self.validation_rules
+                else None
+            ),
         }
-        for value in v:
-            if value not in allowed_models:
-                raise ValueError(
-                    f"Turbulence model '{value}' not in allowed models: {allowed_models}"
-                )
-        return v
+
+    @classmethod
+    def get_schema(cls) -> dict:
+        """Get the schema for the parameter class without requiring instance values."""
+        return cls(values=[]).schema
+
+    @property
+    @abstractmethod
+    def allowed_values(self) -> list[T] | None:
+        """Get allowed values for the parameter."""
+        pass
+
+    @property
+    @abstractmethod
+    def validation_rules(self) -> list[ValidationRule] | None:
+        """Validation rules for the parameter."""
+        pass
+
+    def validate(self) -> None:
+        """Validate the parameter."""
+
+        # Check if each value is allowed
+        if self.allowed_values:
+            for value in self.values:
+                if value not in self.allowed_values:
+                    raise InvalidParameterValueError(value, self.allowed_values)
+
+        # Run the validation rules
+        for rule in self.validation_rules or []:
+            match rule.type:
+                case "length":
+                    if (rule.min_value is not None and len(self.values) < rule.min_value) or (
+                        rule.max_value is not None and len(self.values) > rule.max_value
+                    ):
+                        raise ValidationLengthError(self.values, rule.min_value, rule.max_value)
+
+                case "value":
+                    for value in self.values:
+                        if (rule.min_value is not None and value < rule.min_value) or (
+                            rule.max_value is not None and value > rule.max_value
+                        ):
+                            raise ValidationValueError(value, rule.min_value, rule.max_value)

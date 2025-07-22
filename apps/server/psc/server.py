@@ -1,18 +1,37 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from models import (
-    HealthResponse,
-    ParameterSweepConfigRequest,
-    ParameterSweepConfigResponse,
-)
+from uuid import UUID
 
-from .configurator.configurator import ParameterSweepConfigurator
-from .configurator.registry import ParameterRegistry
-from .simulation.demo import simulation_manager
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+
+from psc.configurator.configurator import ParameterSweepConfigurator
+from psc.configurator.errors import ConfigurationNotFoundError
+from psc.configurator.registry import ParameterRegistry
+from psc.db import async_session_factory
+from psc.models import (
+    BaseResponse,
+    HealthResponse,
+    ParameterDefinition,
+    ParameterSweepConfigurationModel,
+    ParameterSweepConfigurationRequest,
+    SimulationStatusModel,
+)
+from psc.schemas import ParameterSweepConfig, SimulationStatus
+from psc.simulation import simulation_manager
 
 app = FastAPI(
     title="Parameter-Sweep Configurator",
     description="API for configuring and managing parameter sweeps",
     version="0.1.0",
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 
@@ -22,54 +41,80 @@ async def health_check() -> HealthResponse:
     return HealthResponse(status="healthy", message="Server is running")
 
 
-@app.post("/config", response_model=ParameterSweepConfigResponse)
+@app.get("/parameters", response_model=list[ParameterDefinition])
+async def get_parameters() -> list[ParameterDefinition]:
+    """Get all available parameter definitions."""
+    registry = ParameterRegistry()
+    schemas = registry.schema
+    return [ParameterDefinition.model_validate(schema) for schema in schemas]
+
+
+@app.post("/configs", response_model=ParameterSweepConfigurationModel)
 async def create_config(
-    config: ParameterSweepConfigRequest,
-) -> ParameterSweepConfigResponse:
+    config: ParameterSweepConfigurationRequest,
+) -> ParameterSweepConfigurationModel:
     """Create a new parameter sweep configuration."""
     # Convert request parameters to internal parameter models
     registry = ParameterRegistry()
-    parameters = []
+    parameters = [registry.load(param.model_dump()) for param in config.parameters]
 
-    for param_req in config.parameters:
-        # Map request format to internal parameter format
-        param_data = {
-            "type": param_req.key,  # Use key as type for now
-            "datatype": param_req.type,
-            "values": param_req.values,
-        }
-        parameters.append(registry.load(param_data))
+    # Validate the parameters before creating the configurator
+    try:
+        for param in parameters:
+            param.validate()
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Parameter validation failed: {str(e)}") from e
 
     configurator = await ParameterSweepConfigurator.create(
         name=config.name, description=config.description, parameters=parameters
     )
 
     # Convert response back to API format
-    return ParameterSweepConfigResponse(
+    return ParameterSweepConfigurationModel(
         id=configurator.id,
         name=configurator.name,
         description=configurator.description,
         parameters=[
-            {"key": param.type, "type": param.datatype.value, "values": param.values}
+            {"key": param.key, "type": param.key, "values": param.values}
             for param in configurator.parameters
         ],
     )
 
 
-@app.get("/config")
-async def get_configs() -> None:
+@app.get("/configs", response_model=list[ParameterSweepConfigurationModel])
+async def get_configs() -> list[ParameterSweepConfigurationModel]:
     """Query all parameter sweep configurations."""
-    raise NotImplementedError("Not implemented")
+
+    # TODO: this is a demo to query all the configs from the database
+    # In practice, we should use query params to paginate the configs
+    async with async_session_factory() as session:
+        stmt = select(ParameterSweepConfig).order_by(ParameterSweepConfig.created_at.desc())
+        result = await session.execute(stmt)
+        configs = result.scalars().all()
+
+        registry = ParameterRegistry()
+        return [
+            ParameterSweepConfigurationModel(
+                id=config.id,
+                name=config.name,
+                description=config.description,
+                parameters=[
+                    registry.load(param_data).serialize() for param_data in config.parameters
+                ],
+            )
+            for config in configs
+        ]
 
 
-@app.get("/config/{id}", response_model=ParameterSweepConfigResponse)
-async def get_config(id: str) -> ParameterSweepConfigResponse:
+@app.get("/configs/{id}", response_model=ParameterSweepConfigurationModel)
+async def get_config(id: UUID) -> ParameterSweepConfigurationModel:
     """Get a parameter sweep configuration."""
-    from uuid import UUID
+    try:
+        configurator = await ParameterSweepConfigurator.load(id)
+    except ConfigurationNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Configuration not found") from e
 
-    configurator = await ParameterSweepConfigurator.load(UUID(id))
-
-    return ParameterSweepConfigResponse(
+    return ParameterSweepConfigurationModel(
         id=configurator.id,
         name=configurator.name,
         description=configurator.description,
@@ -77,50 +122,73 @@ async def get_config(id: str) -> ParameterSweepConfigResponse:
     )
 
 
-@app.post("/config/{id}")
-async def run_config(id: str) -> dict:
+@app.delete("/configs/{id}", response_model=BaseResponse)
+async def delete_config(id: UUID) -> BaseResponse:
+    """Delete a parameter sweep configuration."""
+    try:
+        await ParameterSweepConfigurator.delete(id)
+        return BaseResponse(status="success", message="Configuration deleted successfully")
+    except ConfigurationNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Configuration not found") from e
+
+
+@app.post("/configs/run/{id}", response_model=BaseResponse)
+async def run_config(id: UUID) -> BaseResponse:
     """Run a parameter sweep configuration.
 
     This endpoint will start a background task to run the simulation.
     Monitor the status of the simulation with `WS /ws/configs/{id}`.
     """
-    from uuid import UUID
 
     try:
-        config_id = UUID(id)
-    except ValueError:
-        return {"error": "Invalid UUID"}
+        configurator = await ParameterSweepConfigurator.load(id)
+    except ConfigurationNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Configuration not found") from e
 
-    configurator = await ParameterSweepConfigurator.load(config_id)
-
-    if simulation_manager.is_running(config_id):
-        return {
-            "status": "already_running",
-            "message": "Simulation is already running for this configuration",
-        }
+    if simulation_manager.is_running(id):
+        return BaseResponse(
+            status="already_running",
+            message="Simulation is already running for this configuration",
+        )
 
     configurator.run()
-    return {"status": "started", "message": "Simulation started successfully"}
+    return BaseResponse(status="started", message="Simulation started successfully")
+
+
+@app.get("/configs/run/{id}", response_model=list[SimulationStatusModel])
+async def get_simulation_runs(id: UUID) -> list[SimulationStatusModel]:
+    """Get simulation runs for a specific configuration."""
+    async with async_session_factory() as session:
+        stmt = (
+            select(SimulationStatus)
+            .where(SimulationStatus.config_id == id)
+            .order_by(SimulationStatus.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        simulations = result.scalars().all()
+
+        return [
+            SimulationStatusModel(
+                id=sim.id,
+                config_id=sim.config_id,
+                progress=sim.progress,
+                state=sim.state,
+                created_at=sim.created_at.isoformat(),
+            )
+            for sim in simulations
+        ]
 
 
 @app.websocket("/ws/configs/{id}")
-async def stream_config_status(websocket: WebSocket, id: str):
+async def stream_config_status(websocket: WebSocket, id: UUID):
     """Stream the status of a parameter sweep configuration.
 
-    Call `POST /config/{id}` to start the simulation.
+    Call `POST /configs/{id}` to start the simulation.
     """
-    from uuid import UUID
-
-    try:
-        config_id = UUID(id)
-    except ValueError:
-        await websocket.close(code=1003, reason="Invalid UUID")
-        return
-
     await websocket.accept()
 
     # Add connection to simulation manager
-    simulation_manager.add_connection(config_id, websocket)
+    simulation_manager.add_connection(id, websocket)
 
     try:
         # Keep connection alive
@@ -130,10 +198,4 @@ async def stream_config_status(websocket: WebSocket, id: str):
         pass
     finally:
         # Remove connection when disconnected
-        simulation_manager.remove_connection(config_id, websocket)
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        simulation_manager.remove_connection(id, websocket)

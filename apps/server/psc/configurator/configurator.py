@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from psc.db import async_session_factory
 from psc.schemas import ParameterSweepConfig
@@ -57,12 +57,30 @@ class ParameterSweepConfigurator:
             if config is None:
                 raise ConfigurationNotFoundError(id)
 
+            registry = ParameterRegistry()
             return cls(
                 id=config.id,
                 name=config.name,
                 description=config.description,
-                parameters=[ParameterRegistry.load(param_data) for param_data in config.parameters],
+                parameters=[registry.load(param_data) for param_data in config.parameters],
             )
+
+    @classmethod
+    async def delete(cls, id: UUID) -> None:
+        """Delete a parameter sweep configurator."""
+        async with async_session_factory() as session:
+            # First check if the configuration exists
+            stmt = select(ParameterSweepConfig).where(ParameterSweepConfig.id == id)
+            result = await session.execute(stmt)
+            config = result.scalar_one_or_none()
+
+            if config is None:
+                raise ConfigurationNotFoundError(id)
+
+            # Delete the configuration
+            delete_stmt = delete(ParameterSweepConfig).where(ParameterSweepConfig.id == id)
+            await session.execute(delete_stmt)
+            await session.commit()
 
     def run(self):
         """Run the parameter sweep."""

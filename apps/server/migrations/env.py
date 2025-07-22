@@ -7,8 +7,8 @@ from sqlalchemy import engine_from_config, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import your models here for autogenerate support
-from src.db import Base
-from src.schemas import ParameterSweepConfig, SimulationStatus  # noqa: F401
+from psc.db import Base
+from psc.schemas import ParameterSweepConfig, SimulationStatus  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
