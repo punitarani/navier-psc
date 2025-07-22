@@ -1,0 +1,25 @@
+{
+	"name": "psc",
+	"private": true,
+	"scripts": {
+		"build": "turbo build",
+		"dev": "turbo dev",
+		"lint": "turbo lint",
+		"lint:fix": "turbo lint:fix",
+		"format": "turbo format",
+		"services": "docker build -t psc-postgres . && docker run -d --name psc-postgres -p 5432:5432 psc-postgres",
+		"services:stop": "docker stop psc-postgres && docker rm psc-postgres"
+	},
+	"devDependencies": {
+		"@turbo/gen": "^2.0.0",
+		"turbo": "^2.0.0",
+		"prettier": "^3.0.0"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"packageManager": "bun@1.0.0",
+	"workspaces": [
+		"apps/*"
+	]
+}
