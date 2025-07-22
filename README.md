@@ -17,8 +17,14 @@ This project uses TurboRepo to manage both the Next.js frontend and the FastAPI 
 # Install dependencies
 bun install
 
+# Build the projects
+bun run build
+
 # Start services
 bun run services
+
+# Run the migrations
+bun run db:migrate
 
 # Run the app
 turbo dev

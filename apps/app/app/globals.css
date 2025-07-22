@@ -120,3 +120,37 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom toast styles */
+[data-sonner-toast][data-type="success"] {
+  background-color: oklch(0.95 0.05 145) !important;
+  border-color: oklch(0.7 0.15 145) !important;
+  color: oklch(0.2 0.1 145) !important;
+}
+
+[data-sonner-toast][data-type="error"] {
+  background-color: oklch(0.95 0.05 27) !important;
+  border-color: oklch(0.7 0.15 27) !important;
+  color: oklch(0.3 0.1 27) !important;
+}
+
+[data-sonner-toast][data-type="info"] {
+  background-color: var(--background) !important;
+  border-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+
+/* Line clamp utilities */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

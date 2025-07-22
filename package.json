@@ -7,6 +7,7 @@
 		"lint": "turbo lint",
 		"lint:fix": "turbo lint:fix",
 		"format": "turbo format",
+		"db:migrate": "turbo db:migrate",
 		"services": "docker build -t psc-postgres . && docker run -d --name psc-postgres -p 5432:5432 psc-postgres",
 		"services:stop": "docker stop psc-postgres && docker rm psc-postgres"
 	},
